@@ -257,7 +257,8 @@ def generate(
     ]
     kwargs["block_table"] = None
     block_numbers = [i for i in range(NUM_BLOCKS)]
-    left_padded_prompt_mask = (kwargs["position_ids"] == 0).sum(dim=1) - 1
+    # Change 2 for number of right pads
+    left_padded_prompt_mask = (kwargs["position_ids"] == 0).sum(dim=1) - 1 - 2
     partial_page_tkv_mask = (kwargs["position_ids"] != 0).sum(dim=1) + 1
     slot_mapping = []
     block_table = []
@@ -362,7 +363,11 @@ def generate(
             logits = output
 
         if "only_last_token" not in kwargs:
-            logits = logits[:, -1, :]
+            # Change 2 for number of right pads
+            if i == 0:
+                logits = logits[:, -1-2, :]
+            else:
+                logits = logits[:, -1, :]
 
         if do_sample:
             # get logits from last value in sequence nad scale
@@ -380,6 +385,10 @@ def generate(
             next_val, kwargs = post_iteration_hook(
                 i + prompt_length, logits, next_val, kwargs
             )
+        
+        if i == 0:
+            # Remove right pad tokens from result
+            result = result[:, :-2]
 
         result = torch.cat((result, next_val), dim=-1)
 

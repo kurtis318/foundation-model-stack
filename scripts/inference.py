@@ -201,12 +201,12 @@ max_len = max([len(prompt) for prompt in [prompt1, prompt2]])
 
 if args.batch_input:
     ids = [prompt1, prompt2]
-    ids, padding_kwargs = pad_input_ids(ids, min_pad_length=args.min_pad_length, tkv=66)
+    ids, padding_kwargs = pad_input_ids(ids, min_pad_length=args.min_pad_length, tkv=64)
 else:
     ids = prompt1
     if args.min_pad_length != 0:
         ids, padding_kwargs = pad_input_ids(
-            [ids], min_pad_length=args.min_pad_length, tkv=66
+            [ids], min_pad_length=args.min_pad_length, tkv=64
         )
     else:
         padding_kwargs = None
