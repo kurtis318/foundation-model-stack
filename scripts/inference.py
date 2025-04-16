@@ -201,11 +201,13 @@ max_len = max([len(prompt) for prompt in [prompt1, prompt2]])
 
 if args.batch_input:
     ids = [prompt1, prompt2]
-    ids, padding_kwargs = pad_input_ids(ids, min_pad_length=args.min_pad_length)
+    ids, padding_kwargs = pad_input_ids(ids, min_pad_length=args.min_pad_length, tkv=66)
 else:
     ids = prompt1
     if args.min_pad_length != 0:
-        ids, padding_kwargs = pad_input_ids([ids], min_pad_length=args.min_pad_length)
+        ids, padding_kwargs = pad_input_ids(
+            [ids], min_pad_length=args.min_pad_length, tkv=66
+        )
     else:
         padding_kwargs = None
 
@@ -216,10 +218,10 @@ def print_result(result):
     if padding_kwargs is not None:
         result = generation.trim_prefix(result)
 
-    result = generation.trim_prefix(result, tokenizer.bos_token_id)
+    # result = generation.trim_prefix(result, tokenizer.bos_token_id)
 
     # stop at EOS token if present and remove padding
-    result = generation.truncate_after_eos(result, tokenizer.eos_token_id)
+    # result = generation.truncate_after_eos(result, tokenizer.eos_token_id)
 
     output_str = tokenizer.convert_tokens_to_string(
         tokenizer.convert_ids_to_tokens(result)

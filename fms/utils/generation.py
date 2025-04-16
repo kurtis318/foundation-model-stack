@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def pad_input_ids(
-    input_ids_list: List[torch.Tensor], min_pad_length: int = 0
+    input_ids_list: List[torch.Tensor], min_pad_length: int = 0, tkv: int = -1
 ) -> Tuple[torch.Tensor, MutableMapping[str, Any]]:
     """
     Convert a list of Tensors to a rectangular tensor. Return extra padding kwargs for the position_ids and mask, since
@@ -42,23 +42,32 @@ def pad_input_ids(
             max_len - seq_len, dtype=torch.long, device=input_ids_i.device
         )
         non_pads = torch.ones(seq_len, dtype=torch.bool, device=input_ids_i.device)
+        if tkv != -1 and max_len < tkv:
+            extra_pads = torch.zeros(
+                tkv - max_len, dtype=torch.long, device=input_ids_i.device
+            )
+        else:
+            extra_pads = torch.zeros(0, dtype=torch.long, device=input_ids_i.device)
 
         # Setting this to 0, however if 0 is the eos, we will end up truncating the output if using truncate_after_eos
         # once this workflow works for nested tensor, this can probably be removed
-        padded_input_ids_list.append(torch.cat((pads, input_ids_i)))
+        padded_input_ids_list.append(torch.cat((pads, input_ids_i, extra_pads)))
 
         # computing this as it's lightweight but could potentially be skipped
-        mask_list.append(torch.cat((pads.bool(), non_pads)))
+        mask_list.append(torch.cat((pads.bool(), non_pads, extra_pads.bool())))
 
         pos_ids_pads = pads
         pos_ids_seq = torch.arange(
             0, seq_len, dtype=torch.long, device=input_ids_i.device
         )
-        position_ids_list.append(torch.cat((pos_ids_pads, pos_ids_seq)))
+        position_ids_list.append(torch.cat((pos_ids_pads, pos_ids_seq, extra_pads)))
 
     input_ids = torch.stack(padded_input_ids_list)
     padding_kwargs = {}
     mask = torch.stack(mask_list)
+    mask = 1 - mask.long()
+    mask = mask.cumsum(dim=-1) * mask
+
     # this is a causal mask for generation
     mask = (mask.unsqueeze(-1) == mask.unsqueeze(-2)).tril()
     mask = torch.where(mask.logical_not(), -torch.inf, 0.0)
@@ -77,9 +86,7 @@ def __update_padding_kwargs(
     # extend the attention mask
     mask = model_specific_kwargs.get("mask", None)
     if mask is not None:
-        # get the last row of the 3d mask
         mask = mask[:, -1:, :]
-        # extend the mask one slot
         mask = torch.cat(
             (
                 mask,
@@ -93,7 +100,15 @@ def __update_padding_kwargs(
     position_ids = model_specific_kwargs.get("position_ids", None)
     if position_ids is not None:
         if use_cache:
-            position_ids = position_ids[:, -1:] + 1
+            # assume max comes before pads
+            right_pads = (
+                position_ids.shape[1]
+                - (torch.max(position_ids, dim=1).indices + 1).item()
+            )
+            if right_pads != 0:
+                position_ids = position_ids[:, -right_pads - 1 : -right_pads] + 1
+            else:
+                position_ids = position_ids[:, -1:] + 1
         else:
             position_ids = torch.cat(
                 (position_ids, position_ids[:, -1:] + 1),
