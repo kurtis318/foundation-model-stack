@@ -150,6 +150,7 @@ class SignatureFixtureMixin:
             print(
                 "Signature failed to load, please re-run the tests with --capture_expectation"
             )
+        return []
 
 
 class ModelConfigTestSuite(ConfigFixtureMixin, ModelFixtureMixin):
@@ -243,7 +244,6 @@ class ModelConsistencyTestSuite(ModelFixtureMixin, SignatureFixtureMixin):
     """All tests related to model consistency will be part of this test suite"""
 
     @property
-    @abc.abstractmethod
     def _get_signature_input_ids(self) -> Optional[torch.Tensor]:
         """the value to pass into inp in get_signature function for this model
 
@@ -279,7 +279,6 @@ class ModelConsistencyTestSuite(ModelFixtureMixin, SignatureFixtureMixin):
         pass
 
     @property
-    @abc.abstractmethod
     def _get_signature_optional_params(self) -> Optional[dict[str, torch.Tensor]]:
         """the value to pass into optional_params in get_signature function for this model
 
