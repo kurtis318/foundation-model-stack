@@ -1,5 +1,6 @@
 import argparse
 import itertools
+import json
 import os
 import random
 
@@ -11,6 +12,7 @@ from torch import distributed as dist
 from fms.models import get_model
 from fms.utils import generation, tokenizers
 from fms.utils.generation import generate, pad_input_ids
+from fms.utils.config import T
 
 
 # This example script validates the LLaMA implementation by running inference on a couple of prompts.
@@ -165,10 +167,35 @@ if args.compile:
     model.compile(mode=args.compile_mode)
 
 
+def get_bos_token_id() -> int:
+    """_summary_
+
+    Returns:
+        int: _description_
+    """
+    if tokenizer.bos_token_id is not None:
+        return tokenizer.bos_token_id
+    if os.path.isdir(args.tokenizer) is False:
+        emsg = f"'tokenizer' argument '{args.tokenizer}' is not a directory"
+        raise ValueError(emsg)
+    config_json = f"{args.tokenizer}/config.json"
+    if os.path.isfile(config_json) is False:
+        print(
+            f"Tokenizer directory '{args.tokenizer}' "
+            "does not contain a 'config.json' file, returning 0 for bos_token_id"
+            )
+        return 0
+    with open(config_json, "r", encoding="utf-8") as jsonf:
+        config = json.load(jsonf)
+        bos_token_id = config.get("bos_token_id", "0")
+        print(f"using bos_token_id={bos_token_id} from file '{config_json}'", flush=True)
+        return int(bos_token_id)
+
+
 def ids_for_prompt(prompt):
     tokens = tokenizer.tokenize(prompt)
     ids = tokenizer.convert_tokens_to_ids(tokens)
-    ids = [tokenizer.bos_token_id] + ids
+    ids = [get_bos_token_id()] + ids
     ids = torch.tensor(ids, dtype=torch.long, device=device)
     return ids
 

@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
   ],
   "attention_bias": false,
   + "attention_dropout": 0.0,           # p_dropout (05)
-  "bos_token_id": 151643,
+  "bos_token_id": 151643,               # added 
   "eos_token_id": 151645,
   "head_dim": 128,
   + "hidden_act": "silu",               # activation_fn (01)
@@ -92,6 +92,7 @@ class QwenConfig(ModelConfig):
     norm_eps: float = 1e-6
     rope_base: float = 100_0000.0  # Same as rope_theta
     # Extra?
+    bos_token_id:int = 151643
     multiple_of: int = 256  # borrowed from llama
     sliding_window: int = 4000     # TODO: no config.json attribute. not used in file
     fused_weights: bool = True  # FMS Specific -- For CPU/GPU = T, AIU = F
