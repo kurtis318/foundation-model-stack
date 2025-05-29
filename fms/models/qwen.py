@@ -128,6 +128,7 @@ class QwenBlock(nn.Module):
             use_high_precision_pow=True,
         )
 
+
         if self.config.kvheads == 0:
             kvheads = self.config.nheads
         else:
@@ -143,6 +144,8 @@ class QwenBlock(nn.Module):
             p_dropout=self.config.p_dropout,
             use_bias=False,
             position_encoder=rotary_emb,
+            use_norm=True,
+            norm_eps=self.config.norm_eps,
             fused=self.config.fused_weights,
             linear_config=self.config.linear_config,
         )
@@ -531,6 +534,8 @@ def _hf_to_fms_names(input_sd: Mapping[str, Any], **kwargs) -> Mapping[str, Any]
         (r"mlp\.down_proj", "ff_sub_layer.w2"),
         (r"input_layernorm", "ln"),
         (r"post_attention_layernorm", "ff_ln"),
+        (r"self_attn\.k_norm", "attn.in_proj.k_norm"),
+        (r"self_attn\.q_norm", "attn.in_proj.q_norm"),
     ]
     new_sd = {}
     for name, param in input_sd.items():

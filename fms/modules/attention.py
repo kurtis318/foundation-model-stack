@@ -5,6 +5,7 @@ import torch
 import torch.distributed
 from torch import Tensor, nn
 from torch.distributed.distributed_c10d import ProcessGroup
+from fms.modules.layernorm import LayerNormParameterized
 from torch.nn import functional as F
 
 from fms import distributed
@@ -90,6 +91,8 @@ class UnfusedQKV(QKV):
         emb_kq_per_head: int,
         emb_v_per_head: int,
         use_bias: bool,
+        use_norm: bool = False,
+        norm_eps: float = 1e-6,
         linear_config: Optional[Mapping[str, Any]] = None,
         *args,
         **kwargs,
@@ -105,7 +108,7 @@ class UnfusedQKV(QKV):
             *args,
             **kwargs,
         )
-
+        self.use_norm = use_norm
         self.query = get_linear(
             self.emb_dim,
             self.nheads * self.emb_kq_per_head,
@@ -124,6 +127,23 @@ class UnfusedQKV(QKV):
             bias=use_bias,
             linear_config=linear_config,
         )
+        if use_norm:
+            self.q_norm = LayerNormParameterized(
+                self.emb_dim,
+                elementwise_scale=True,
+                elementwise_shift=False,
+                use_mean=False,
+                eps=norm_eps,
+                use_high_precision_pow=True,
+            )
+            self.k_norm = LayerNormParameterized(
+                self.emb_dim,
+                elementwise_scale=True,
+                elementwise_shift=False,
+                use_mean=False,
+                eps=norm_eps,
+                use_high_precision_pow=True,
+            )
 
     def reset_parameters(self):
         for m in self.modules():
@@ -145,7 +165,11 @@ class UnfusedQKV(QKV):
 
         # b x h x qlen x ds
         queries = self.query(q)
+        if self.use_norm:
+            queries = self.q_norm(queries)
         keys = self.key(k)
+        if self.use_norm:
+            keys = self.k_norm(keys)
         values = self.value(v)
         return queries, keys, values
 
@@ -267,6 +291,8 @@ class MultiHeadAttention(nn.Module):
         kvheads,
         p_dropout=None,
         use_bias=False,
+        use_norm: bool = False,
+        norm_eps: float = 1e-6,
         position_encoder: Optional[PositionEncoder] = None,
         fused: bool = True,
         linear_config: Optional[Mapping[str, Any]] = None,
@@ -292,6 +318,8 @@ class MultiHeadAttention(nn.Module):
             self.emb_v_per_head,
             self.use_bias,
             linear_config=linear_config,
+            use_norm=use_norm,
+            norm_eps=norm_eps
         )
 
         self.dense = get_linear(
