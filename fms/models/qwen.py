@@ -1,4 +1,12 @@
-# TODO: Copied from mistral.py on
+# -*- coding: utf-8 -*-
+
+"""
+Part of code to support Qwen3 models
+"""
+
+# pylint: disable=unknown-option-value,protected-access
+# pylint: disable=unused-argument
+
 import logging
 import math
 import re
@@ -6,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Tuple
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from fms import models
 from fms.distributed.strategy import (
@@ -78,6 +86,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class QwenConfig(ModelConfig):
+    """_summary_
+
+    Args:
+        ModelConfig (_type_): _description_
+    """
     # From above mapping
     src_vocab_size: int = 151936
     nheads: int = 16
@@ -94,10 +107,10 @@ class QwenConfig(ModelConfig):
     # Extra?
     bos_token_id:int = 151643
     multiple_of: int = 256  # borrowed from llama
-    sliding_window: int = 4000     # TODO: no config.json attribute. not used in file
+    sliding_window: int = 4000
     fused_weights: bool = True  # FMS Specific -- For CPU/GPU = T, AIU = F
     pad_id: int = -1  # borrowed from granite, we do need it
-    linear_config: Optional[Mapping[str, Any]] = None  # To suppor quantization
+    linear_config: Optional[Mapping[str, Any]] = None  # To support quantization
 
 
 # Qwen3-1.7B
@@ -105,7 +118,19 @@ _1_7b_config = QwenConfig()
 
 
 class QwenBlock(nn.Module):
+    """
+    
+    Args:
+        nn (_type_): _description_
+    """
+
     def __init__(self, config: QwenConfig, rotary_emb: RotaryEmbedding):
+        """_summary_
+
+        Args:
+            config (QwenConfig): _description_
+            rotary_emb (RotaryEmbedding): _description_
+        """
         super(QwenBlock, self).__init__()
         self.config = config
         emb_kq = self.config.emb_dim // self.config.nheads
@@ -174,6 +199,20 @@ class QwenBlock(nn.Module):
         is_causal_mask=False,
         attn_algorithm=None,
     ):
+        """_summary_
+
+        Args:
+            x (_type_): _description_
+            mask (_type_, optional): _description_. Defaults to None.
+            position_ids (_type_, optional): _description_. Defaults to None.
+            past_key_value_state (_type_, optional): _description_. Defaults to None.
+            use_cache (bool, optional): _description_. Defaults to False.
+            is_causal_mask (bool, optional): _description_. Defaults to False.
+            attn_algorithm (_type_, optional): _description_. Defaults to None.
+
+        Returns:
+            _type_: _description_
+        """
         # if the cache is not empty, we need to get the kv cache for self and cross attention
         self_attn_past_key_value = past_key_value_state
         # if past_key_value_state is not None:
@@ -213,16 +252,28 @@ class QwenBlock(nn.Module):
 
         if use_cache:
             return (x, cache)
-        else:
-            return x
+        return x
 
 
 class QwenHeadless(nn.Module):
+    """
+
+    Args:
+        nn (_type_): _description_
+    """
+
     def __init__(
         self,
         config: QwenConfig,
         distributed_strategy: DistributedStrategy = NoOpStrategy,
     ):
+        """_summary_
+
+        Args:
+            config (QwenConfig): _description_
+            distributed_strategy (DistributedStrategy, optional): 
+                    _description_. Defaults to NoOpStrategy.
+        """
         super(QwenHeadless, self).__init__()
         self.config = config
         self.distributed_strategy = distributed_strategy
@@ -235,7 +286,7 @@ class QwenHeadless(nn.Module):
 
         self.rot_emb = RotaryEmbedding(
             dim=self.config.emb_dim // self.config.nheads,
-            ntk_scaling=False,
+            # ntk_scaling=False,
             max_seq_len=self.config.max_expected_seq_len,
             ratio=self.config.rope_base,
         )
@@ -269,6 +320,8 @@ class QwenHeadless(nn.Module):
             self.dropout = nn.Dropout(self.config.p_dropout)
 
     def reset_parameters(self):
+        """_summary_
+        """
         nn.init.trunc_normal_(
             self.embedding.weight, mean=0.0, std=self.config.emb_dim**-0.5
         )
@@ -294,6 +347,12 @@ class QwenHeadless(nn.Module):
         cached_freqs: dict[Optional[torch.device], dict[int, torch.Tensor]],
         max_seq_len_cached: dict[Optional[torch.device], int],
     ):
+        """_summary_
+
+        Args:
+            cached_freqs (dict[Optional[torch.device], dict[int, torch.Tensor]]): _description_
+            max_seq_len_cached (dict[Optional[torch.device], int]): _description_
+        """
         # remove meta tensors from cached_freqs
         for dev in list(cached_freqs.keys()):
             for alp in list(cached_freqs[dev].keys()):
@@ -304,6 +363,8 @@ class QwenHeadless(nn.Module):
                         del max_seq_len_cached[dev]
 
     def post_init(self):
+        """_summary_
+        """
         # This function is called in `get_model` after the model is
         # fully initalized on the correct device
 
@@ -328,7 +389,21 @@ class QwenHeadless(nn.Module):
         use_cache=False,
         attn_algorithm=None,
     ):
-        # Embed the given vocabulary indices using the given attention mask, with pre-/post-norm and dropout as specified
+        """_summary_
+
+        Args:
+            x_in (_type_): _description_
+            mask (_type_, optional): _description_. Defaults to None.
+            position_ids (_type_, optional): _description_. Defaults to None.
+            past_key_value_states (_type_, optional): _description_. Defaults to None.
+            use_cache (bool, optional): _description_. Defaults to False.
+            attn_algorithm (_type_, optional): _description_. Defaults to None.
+
+        Returns:
+            _type_: _description_
+        """
+        # Embed the given vocabulary indices using the given attention mask, with pre-/post-norm
+        # and dropout as specified
         # x_in: batch_size x seq_len
         # mask: batch_size x seq_len x seq_len
         # bias: nheads x seq_len x seq_len
@@ -385,12 +460,25 @@ class QwenHeadless(nn.Module):
 
 
 class Qwen(nn.Module):
+    """
+
+    Args:
+        nn (_type_): _description_
+    """
+
     def __init__(
         self,
         config: Optional[QwenConfig] = None,
         distributed_strategy: DistributedStrategy = NoOpStrategy,
         **kwargs,
     ):
+        """_summary_
+
+        Args:
+            config (Optional[QwenConfig], optional): _description_. Defaults to None.
+            distributed_strategy (DistributedStrategy, optional):
+                _description_. Defaults to NoOpStrategy.
+        """
         super(Qwen, self).__init__()
         if config is not None:
             self.config = config
@@ -406,12 +494,27 @@ class Qwen(nn.Module):
 
     @classmethod
     def from_config(cls, config: QwenConfig) -> "Qwen":
+        """_summary_
+
+        Args:
+            config (QwenConfig): _description_
+
+        Returns:
+            Qwen: _description_
+        """
         return cls(config)
 
     def get_config(self) -> QwenConfig:
+        """_summary_
+
+        Returns:
+            QwenConfig: _description_
+        """
         return self.config
 
     def reset_parameters(self):
+        """_summary_
+        """
         self.head.weight.data.normal_(
             0,
             1 / math.sqrt(math.sqrt(self.config.emb_dim * self.config.src_vocab_size)),
@@ -419,6 +522,8 @@ class Qwen(nn.Module):
         self.base_model.reset_parameters()
 
     def post_init(self):
+        """_summary_
+        """
         # if this model ties weights, they are tied here
         if self.config.tie_heads:
             # handle assignment of non-meta weights to meta parameters
@@ -439,6 +544,21 @@ class Qwen(nn.Module):
         only_last_token: bool = False,
         attn_algorithm: Optional[str] = None,
     ):
+        """_summary_
+
+        Args:
+            x (torch.LongTensor): _description_
+            mask (Optional[torch.Tensor], optional): _description_. Defaults to None.
+            position_ids (Optional[torch.LongTensor], optional): _description_. Defaults to None.
+            past_key_value_states (Optional[Tuple[torch.FloatTensor,]], optional):
+                    _description_. Defaults to None.
+            use_cache (bool, optional): _description_. Defaults to False.
+            only_last_token (bool, optional): _description_. Defaults to False.
+            attn_algorithm (Optional[str], optional): _description_. Defaults to None.
+
+        Returns:
+            _type_: _description_
+        """
         output, cache = self.base_model(
             x, mask, position_ids, past_key_value_states, use_cache, attn_algorithm
         )
@@ -449,11 +569,10 @@ class Qwen(nn.Module):
 
         if use_cache:
             return preds, cache
-        else:
-            return preds
+        return preds
 
 
-_architecture_name = "qwen3"
+_ARCHITECTURE_NAME = "qwen3"
 
 
 def _qwen_factory_factory(config):
@@ -463,14 +582,14 @@ def _qwen_factory_factory(config):
     return factory
 
 
-models.register_model(_architecture_name, "1.7b", _qwen_factory_factory(_1_7b_config))
+models.register_model(_ARCHITECTURE_NAME, "1.7b", _qwen_factory_factory(_1_7b_config))
 
 
 # =============== Serialization ==================
 
 
 serialization.register_adapter_step(
-    _architecture_name,
+    _ARCHITECTURE_NAME,
     "swiglu_unfused_to_fused",
     serialization._mlp_glu_unfused_to_fused_adapter_step,
 )
@@ -492,12 +611,24 @@ def _weight_fusion(
     return new_sd
 
 
-serialization.register_adapter_step(_architecture_name, "weight_fusion", _weight_fusion)
+serialization.register_adapter_step(_ARCHITECTURE_NAME, "weight_fusion", _weight_fusion)
 
 
 def _hf_gptq_qwen_check(
     input_sd: Mapping[str, Any], model_config: Optional[QwenConfig] = None, **kwargs
 ) -> Mapping[str, Any]:
+    """_summary_
+
+    Args:
+        input_sd (Mapping[str, Any]): _description_
+        model_config (Optional[QwenConfig], optional): _description_. Defaults to None.
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        Mapping[str, Any]: _description_
+    """
     has_fused_weights = True
     linear_type = "torch_linear"
     if model_config:
@@ -515,11 +646,19 @@ def _hf_gptq_qwen_check(
 
 
 serialization.register_adapter_step(
-    _architecture_name, "hf_gptq_fusion_check", _hf_gptq_qwen_check
+    _ARCHITECTURE_NAME, "hf_gptq_fusion_check", _hf_gptq_qwen_check
 )
 
 
 def _hf_to_fms_names(input_sd: Mapping[str, Any], **kwargs) -> Mapping[str, Any]:
+    """_summary_
+
+    Args:
+        input_sd (Mapping[str, Any]): _description_
+
+    Returns:
+        Mapping[str, Any]: _description_
+    """
     replacements = [
         (r"^lm_head.weight", "head.weight"),
         (r"^model.embed_tokens.weight", "base_model.embedding.weight"),
@@ -536,6 +675,8 @@ def _hf_to_fms_names(input_sd: Mapping[str, Any], **kwargs) -> Mapping[str, Any]
         (r"post_attention_layernorm", "ff_ln"),
         (r"self_attn\.k_norm", "attn.in_proj.k_norm"),
         (r"self_attn\.q_norm", "attn.in_proj.q_norm"),
+        (r"self_attn\.in_proj\.k_norm", "attn.in_proj.k_norm"),
+        (r"self_attn\.in_pfoj\.q_norm", "attn.in_proj.q_norm"),
     ]
     new_sd = {}
     for name, param in input_sd.items():
@@ -547,20 +688,37 @@ def _hf_to_fms_names(input_sd: Mapping[str, Any], **kwargs) -> Mapping[str, Any]
 
 
 serialization.register_adapter_step(
-    _architecture_name, "hf_to_fms_names", _hf_to_fms_names
+    _ARCHITECTURE_NAME, "hf_to_fms_names", _hf_to_fms_names
 )
 
 
 def _get_rope_params(linear_type: str) -> list[str]:
+    """_summary_
+
+    Args:
+        linear_type (str): _description_
+
+    Returns:
+        list[str]: _description_
+    """
     if "gptq" in linear_type:
         return ["qweight", "scales", "qzeros", "bias"]
-    else:  # torch.nn.Linear
-        return ["weight", "bias"]
+    # torch.nn.Linear
+    return ["weight", "bias"]
 
 
 def _hf_to_fms_rope(
     input_sd: Mapping[str, Any], model_config: Optional[QwenConfig] = None, **kwargs
 ) -> Mapping[str, Any]:
+    """_summary_
+
+    Args:
+        input_sd (Mapping[str, Any]): _description_
+        model_config (Optional[QwenConfig], optional): _description_. Defaults to None.
+
+    Returns:
+        Mapping[str, Any]: _description_
+    """
     new_sd = {}
 
     if model_config:
@@ -616,11 +774,11 @@ def _hf_to_fms_rope(
 
 
 serialization.register_adapter_step(
-    _architecture_name, "hf_to_fms_rope", _hf_to_fms_rope
+    _ARCHITECTURE_NAME, "hf_to_fms_rope", _hf_to_fms_rope
 )
 
 serialization.register_adapter(
-    _architecture_name,
+    _ARCHITECTURE_NAME,
     "hf",
     ["hf_to_fms_names", "hf_to_fms_rope", "hf_gptq_fusion_check", "weight_fusion"],
 )

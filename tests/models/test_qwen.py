@@ -1,10 +1,14 @@
+# -*- coding: utf-8 -*-
+
+"""
+Test case for Qwen3 models support.
+"""
 
 # pylint: disable=protected-access,unused-argument,abstract-method
 # pylint: disable=missing-module-docstring,disable=missing-class-docstring
 # pylint: disable=missing-function-docstring,line-too-long,invalid-name
 # pylint: disable=unused-import,too-few-public-methods
-# pyline: disable=unknown-option-value
-# pyline: arguments-differ
+# pylint: disable=unknown-option-value,arguments-differ
 # type: ignore
 
 import pytest
@@ -25,15 +29,28 @@ class QwenFixtures(ConfigFixtureMixin, ModelFixtureMixin):
     """
     Base Qwen Fixtures that can be re-used for other purposes
 
-    This will include the config and model signatures
+    This will include the config and model signatures.
     """
 
     @pytest.fixture(scope="class", autouse=True)
     def uninitialized_model(self, config: QwenConfig):
+        """_summary_
+
+        Args:
+            config (QwenConfig): _description_
+
+        Returns:
+            _type_: _description_
+        """
         return Qwen(config)
 
     @pytest.fixture(scope="class", autouse=True)
     def config(self) -> ModelConfig:
+        """_summary_
+
+        Returns:
+            ModelConfig: _description_
+        """
         return QwenConfig(
             src_vocab_size=384,
             emb_dim=16,
@@ -65,7 +82,10 @@ class Test_Qwen(
     _get_signature_params = ["x"]
 
     def test_config_passed_to_model_and_updated(self, model, config):
-        """test model constructor appropriately merges any passed kwargs into the config without mutating the original config"""
+        """
+        test model constructor appropriately merges any passed kwargs into the
+        config without mutating the original config
+        """
         model = type(model)(config=config, pad_id=config.pad_id + 1)
         # check not same reference
         assert model.get_config() is not config
@@ -82,6 +102,11 @@ class Test_Qwen(
 class QwenGPTQFixtures(ModelFixtureMixin):
     @pytest.fixture(scope="class", autouse=True)
     def uninitialized_model(self):
+        """_summary_
+
+        Returns:
+            _type_: _description_
+        """
         return Qwen(
             src_vocab_size=384,
             emb_dim=64,
@@ -103,6 +128,15 @@ class QwenGPTQFixtures(ModelFixtureMixin):
         )
 
     def _maybe_get_initialized_parameter(self, key, parameter):
+        """_summary_
+
+        Args:
+            key (_type_): _description_
+            parameter (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
         if "qweight" in key:
             return torch.randint(
                 low=0,
@@ -118,7 +152,7 @@ class QwenGPTQFixtures(ModelFixtureMixin):
 
 
 @pytest.mark.autogptq
-class TestMistralGPTQ(
+class TestQwenGPTQ(
     ModelConsistencyTestSuite, ModelCompileTestSuite, QwenGPTQFixtures
 ):
     # x is the main parameter for this model which is the input tensor
