@@ -471,6 +471,7 @@ class FusedQKV(QKV):
         emb_kq_per_head: int,
         emb_v_per_head: int,
         use_bias: bool,
+        use_norm: bool = False,
         linear_config: Optional[Mapping[str, Any]] = None,
         *args,
         **kwargs,
@@ -486,6 +487,7 @@ class FusedQKV(QKV):
             *args,
             **kwargs,
         )
+        self.use_norm = use_norm
         self.splits = [
             self.nheads * self.emb_kq_per_head,
             self.kvheads * self.emb_kq_per_head,
@@ -498,6 +500,21 @@ class FusedQKV(QKV):
             bias=self.use_bias,
             linear_config=linear_config,
         )
+        if use_norm:
+            self.q_norm = LayerNormParameterized(
+                self.emb_dim,
+                elementwise_scale=True,
+                elementwise_shift=False,
+                use_mean=False,
+                use_high_precision_pow=True,
+            )
+            self.k_norm = LayerNormParameterized(
+                self.emb_dim,
+                elementwise_scale=True,
+                elementwise_shift=False,
+                use_mean=False,
+                use_high_precision_pow=True,
+            )
 
     def unfuse_weights(self):
         with torch.device("meta"):
@@ -590,6 +607,7 @@ class MultiHeadAttention(nn.Module):
         self.emb_v_per_head = emb_v
         self.p_dropout = p_dropout if p_dropout is not None else 0.0
         self.use_bias = use_bias
+        self.use_norm = use_norm
         self.fused = fused
         self.linear_config = linear_config
         self.scale_factor = scale_factor
@@ -601,6 +619,7 @@ class MultiHeadAttention(nn.Module):
             self.emb_kq_per_head,
             self.emb_v_per_head,
             self.use_bias,
+            self.use_norm,
             linear_config=linear_config,
         )
 
