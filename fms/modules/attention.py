@@ -318,11 +318,13 @@ class QKV(nn.Module, metaclass=abc.ABCMeta):
         emb_kq_per_head: int,
         emb_v_per_head: int,
         use_bias: bool,
+        use_norm: bool = False,
         linear_config: Optional[Mapping[str, Any]] = None,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+        self.use_norm = use_norm
         self.emb_dim = emb_dim
         self.nheads = nheads
         self.kvheads = kvheads
@@ -388,11 +390,11 @@ class UnfusedQKV(QKV):
             emb_kq_per_head,
             emb_v_per_head,
             use_bias,
+            use_norm,
             linear_config,
             *args,
             **kwargs,
         )
-        self.use_norm = use_norm
         self.query = get_linear(
             self.emb_dim,
             self.nheads * self.emb_kq_per_head,
@@ -411,9 +413,9 @@ class UnfusedQKV(QKV):
             bias=use_bias,
             linear_config=linear_config,
         )
-        if use_norm:
+        if self.use_norm:
             self.q_norm = LayerNormParameterized(
-                self.emb_dim,
+                self.emb_kq_per_head,
                 elementwise_scale=True,
                 elementwise_shift=False,
                 use_mean=False,
@@ -421,7 +423,7 @@ class UnfusedQKV(QKV):
                 use_high_precision_pow=True,
             )
             self.k_norm = LayerNormParameterized(
-                self.emb_dim,
+                self.emb_kq_per_head,
                 elementwise_scale=True,
                 elementwise_shift=False,
                 use_mean=False,
@@ -449,13 +451,14 @@ class UnfusedQKV(QKV):
 
         # b x h x qlen x ds
         queries = self.query(q)
+        input_shape = queries.shape
         if self.use_norm:
-            queries = self.q_norm(queries)
+            queries = self.q_norm(queries.view(*input_shape[:-1], -1, self.emb_kq_per_head))
         keys = self.key(k)
         if self.use_norm:
-            keys = self.k_norm(keys)
+            keys = self.k_norm(keys.view(*input_shape[:-1], -1, self.emb_kq_per_head))
         values = self.value(v)
-        return queries, keys, values
+        return queries.view(*input_shape[:-1], -1), keys.view(*input_shape[:-1], -1), values
 
 
 class FusedQKV(QKV):
@@ -483,11 +486,11 @@ class FusedQKV(QKV):
             emb_kq_per_head,
             emb_v_per_head,
             use_bias,
+            use_norm,
             linear_config,
             *args,
             **kwargs,
         )
-        self.use_norm = use_norm
         self.splits = [
             self.nheads * self.emb_kq_per_head,
             self.kvheads * self.emb_kq_per_head,
@@ -500,16 +503,16 @@ class FusedQKV(QKV):
             bias=self.use_bias,
             linear_config=linear_config,
         )
-        if use_norm:
+        if self.use_norm:
             self.q_norm = LayerNormParameterized(
-                self.emb_dim,
+                self.emb_kq_per_head,
                 elementwise_scale=True,
                 elementwise_shift=False,
                 use_mean=False,
                 use_high_precision_pow=True,
             )
             self.k_norm = LayerNormParameterized(
-                self.emb_dim,
+                self.emb_kq_per_head,
                 elementwise_scale=True,
                 elementwise_shift=False,
                 use_mean=False,
@@ -551,7 +554,20 @@ class FusedQKV(QKV):
             qkv = q
         else:
             raise ValueError("q, k, and v must be the same or k and v must be None")
-        return self.qkv_fused(qkv).split(self.splits, dim=-1)
+        # queries, keys, values = self.qkv_fused(qkv).split(self.splits, dim=-1)
+        # if self.use_norm:
+        #     queries = self.q_norm(queries)
+        #     keys = self.k_norm(keys)
+        # return queries, keys, values
+        queries = self.query(q)
+        input_shape = queries.shape
+        if self.use_norm:
+            queries = self.q_norm(queries.view(*input_shape[:-1], -1, self.emb_kq_per_head))
+        keys = self.key(k)
+        if self.use_norm:
+            keys = self.k_norm(keys.view(*input_shape[:-1], -1, self.emb_kq_per_head))
+        values = self.value(v)
+        return queries.view(*input_shape[:-1], -1), keys.view(*input_shape[:-1], -1), values
 
 
 class MultiHeadAttention(nn.Module):

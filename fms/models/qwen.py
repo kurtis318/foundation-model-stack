@@ -675,8 +675,6 @@ def _hf_to_fms_names(input_sd: Mapping[str, Any], **kwargs) -> Mapping[str, Any]
         (r"post_attention_layernorm", "ff_ln"),
         (r"self_attn\.k_norm", "attn.in_proj.k_norm"),
         (r"self_attn\.q_norm", "attn.in_proj.q_norm"),
-        (r"self_attn\.in_proj\.k_norm", "attn.in_proj.k_norm"),
-        (r"self_attn\.in_pfoj\.q_norm", "attn.in_proj.q_norm"),
     ]
     new_sd = {}
     for name, param in input_sd.items():
