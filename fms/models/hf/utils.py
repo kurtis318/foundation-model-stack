@@ -147,6 +147,8 @@ def _infer_model_configuration(
     architecture = config.architectures[0]
     config_params = {}
 
+    print(f"Using architecture: {architecture}")
+
     if architecture == "LlamaForCausalLM":
         inner_dim = config.intermediate_size
         architecture = "llama"
