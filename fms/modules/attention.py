@@ -3,14 +3,14 @@ import functools
 from typing import (
     Any,
     Callable,
+    Concatenate,
     List,
     Mapping,
-    NotRequired,
     Optional,
     Tuple,
     TypedDict,
-    Unpack,
 )
+from typing_extensions import NotRequired, Unpack
 
 import torch
 import torch.distributed
@@ -55,17 +55,17 @@ class AttentionKwargs(TypedDict, total=False):
 def register_attention_op(
     attn_type: str,
     store_op: Callable[
-        [
+        Concatenate[
             torch.Tensor,
             torch.Tensor,
             Optional[torch.Tensor],
             Optional[torch.Tensor],
-            Unpack[AttentionKwargs],
+            ...,
         ],
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
     ],
     compute_op: Callable[
-        [
+        Concatenate[
             torch.Tensor,
             torch.Tensor,
             torch.Tensor,
@@ -73,14 +73,14 @@ def register_attention_op(
             int,
             float,
             float,
-            Unpack[AttentionKwargs],
+            ...,
         ],
         torch.Tensor,
     ],
-    is_prefill_op: Optional[Callable[[Unpack[AttentionKwargs]], bool]] = None,
+    is_prefill_op: Optional[Callable[..., bool]] = None,
     compute_decode_op: Optional[
         Callable[
-            [
+            Concatenate[
                 torch.Tensor,
                 torch.Tensor,
                 torch.Tensor,
@@ -88,21 +88,19 @@ def register_attention_op(
                 int,
                 float,
                 float,
-                Unpack[AttentionKwargs],
+                ...,
             ],
             torch.Tensor,
         ]
     ] = None,
-    update_attn_kwargs_op: Optional[
-        Callable[[Unpack[AttentionKwargs]], AttentionKwargs]
-    ] = None,
+    update_attn_kwargs_op: Optional[Callable[..., AttentionKwargs]] = None,
     validate_attn_kwargs_op: Optional[
         Callable[
-            [
+            Concatenate[
                 torch.Tensor,
                 torch.Tensor,
                 Optional[List[Tuple[torch.Tensor, torch.Tensor]]],
-                Unpack["AttentionKwargs"],
+                ...,
             ],
             None,
         ]
@@ -144,7 +142,7 @@ def register_attention_op(
     if compute_decode_op is None:
         compute_decode_op = compute_op
 
-    compute_dict = {
+    compute_dict: dict[str, Callable] = {
         "store": store_op,
         "is_prefill": (lambda **_: True) if is_prefill_op is None else is_prefill_op,
         "compute_prefill": compute_op,
@@ -269,7 +267,9 @@ def _sdpa_compute_op(
     return attn
 
 
-def _sdpa_update_attn_kwargs(**attn_kwargs):
+def _sdpa_update_attn_kwargs(
+    **attn_kwargs: Unpack[SDPAAttentionKwargs],
+) -> SDPAAttentionKwargs:
     # this is updating the mask for decoding
     mask = attn_kwargs.get("mask", None)
     if mask is not None:
@@ -307,7 +307,7 @@ def get_attention_type(**attn_kwargs: Unpack[AttentionKwargs]) -> dict[str, Call
     attn_name = attn_kwargs.get("attn_name", "sdpa_causal")
     if attn_name not in __type_factory_map:
         # we can add sdpa default here
-        raise KeyError("")
+        raise KeyError(f"The attention {attn_name} is not registered")
 
     return __type_factory_map[attn_name]
 
@@ -338,7 +338,10 @@ class QKV(nn.Module, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def forward(
-        self, q: torch.Tensor, k: Optional[torch.Tensor], v: Optional[torch.Tensor]
+        self,
+        q: torch.Tensor,
+        k: Optional[torch.Tensor],
+        v: Optional[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """applies query/key/value transformations on q, k, v inputs respectively and returns the resulting values
 
@@ -423,7 +426,10 @@ class UnfusedQKV(QKV):
                     m.bias.data.zero_()
 
     def forward(
-        self, q: torch.Tensor, k: Optional[torch.Tensor], v: Optional[torch.Tensor]
+        self,
+        q: torch.Tensor,
+        k: Optional[torch.Tensor],
+        v: Optional[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if k is None and v is None:
             k = q
@@ -510,7 +516,10 @@ class FusedQKV(QKV):
             self.qkv_fused.bias.data.zero_()
 
     def forward(
-        self, q: torch.Tensor, k: Optional[torch.Tensor], v: Optional[torch.Tensor]
+        self,
+        q: torch.Tensor,
+        k: Optional[torch.Tensor],
+        v: Optional[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if (k is None and v is None) or (k is q and v is q):
             qkv = q
@@ -767,9 +776,6 @@ class TPMultiHeadAttention(MultiHeadAttention, TPModule):
         self.pre_tp_kvheads = kvheads
         self.setup_tp(rank, group)
 
-        # linear_type must handle module_name = None to support TP of MHA
-        self.linear_type = get_linear_type(self.linear_config)
-
     def load_weights(
         self,
         tensor_values: dict[str, torch.Tensor],
@@ -812,7 +818,11 @@ class TPMultiHeadAttention(MultiHeadAttention, TPModule):
             }
 
         type_sharding_map = get_all_linear_type_to_sharding_maps()
-        unused_keys = type_sharding_map[self.linear_type](
+
+        # TODO: Remove assumption that all layers in module share quantization
+        module_name = getattr(self.dense, "module_name", None)
+        linear_type = get_linear_type(self.linear_config, module_name)
+        unused_keys = type_sharding_map[linear_type](
             tensor_values,
             self,
             module_sharding_info,
